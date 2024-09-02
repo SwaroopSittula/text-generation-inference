@@ -281,7 +281,7 @@ impl State {
                     decode_tokens += entry.request.stopping_parameters.max_new_tokens;
                     let total_tokens = prefill_tokens + decode_tokens + self.speculate;
 
-                    if prefill_tokens > prefill_token_budget || total_tokens > token_budget {
+                    if total_tokens > token_budget {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
@@ -301,9 +301,7 @@ impl State {
                     };
                     decode_tokens += max_new_tokens;
 
-                    if prefill_tokens > prefill_token_budget
-                        || (prefill_tokens + decode_tokens + self.speculate) > token_budget
-                    {
+                    if (prefill_tokens + decode_tokens + self.speculate) > token_budget {
                         // Entry is over budget
                         // Add it back to the front
                         tracing::debug!("Over budget: prefill_tokens={prefill_tokens} > {prefill_token_budget} || {prefill_tokens} + {decode_tokens} + {} > {token_budget}", self.speculate);
@@ -358,6 +356,7 @@ impl State {
                     block_allocation.prefix_len,
                 ),
             };
+            let suffix_len = (slots.len() as u32).saturating_sub(prefix_len);
 
             entry.block_allocation = block_allocation;
 
@@ -394,6 +393,7 @@ impl State {
                 blocks,
                 slots,
                 prefix_len,
+                suffix_len,
                 adapter_id: entry.request.adapter_id.clone(),
             });
             // Set batch_time
