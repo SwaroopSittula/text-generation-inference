@@ -152,6 +152,7 @@ class FlashCausalLMBatch(Batch):
 
     # Prefixes
     prefix_ids: List[List[int]]
+    suffix_ids: List[List[int]]
 
     # All tokens
     all_input_ids: List[List[int]]
@@ -226,6 +227,7 @@ class FlashCausalLMBatch(Batch):
         read_offsets = []
         all_input_ids = []
         prefix_ids = []
+        suffix_ids = []
         requests_idx_mapping = {}
 
         all_prefill_logprobs = True
@@ -265,18 +267,27 @@ class FlashCausalLMBatch(Batch):
             orig_input_length = len(tokenized_input)
 
             prefix_len = r.prefix_len
-            import ipdb
-
-            ipdb.set_trace()
+            suffix_len = r.suffix_len
             assert (
                 prefix_len <= orig_input_length
             ), f"Prefix {prefix_len} vs input {orig_input_length}"
+            assert (
+                suffix_len <= orig_input_length
+            ), f"suffix {suffix_len} vs input {orig_input_length}"
             if prefix_len == orig_input_length:
                 assert prefix_len > 0
                 prefix_len -= 1
+            assert (
+                prefix_len + suffix_len < orig_input_length
+            ), f"Prefix+suffix are invalid {prefix_len} + {suffix_len} < {orig_input_length}"
 
             prefix_ids.append(tokenized_input[:prefix_len])
             tokenized_input = tokenized_input[prefix_len:]
+            if suffix_len > 0:
+                suffix_ids.append(tokenized_input[-suffix_len:])
+                tokenized_input = tokenized_input[:-suffix_len]
+            else:
+                suffix_ids.append([])
 
             input_length = len(tokenized_input)
             input_lengths.append(input_length)
@@ -288,7 +299,7 @@ class FlashCausalLMBatch(Batch):
 
             # Position ids
             request_position_ids = torch.arange(
-                prefix_len, orig_input_length, dtype=torch.int32
+                prefix_len, orig_input_length - suffix_len, dtype=torch.int32
             )
             position_ids.append(request_position_ids)
 
@@ -384,7 +395,7 @@ class FlashCausalLMBatch(Batch):
             # Update
             cumulative_length += input_length
             cumulative_slot_tokens += slot_tokens
-            max_seqlen = max(max_seqlen, input_length)
+            max_seqlen = max(max_seqlen, orig_input_length)
             max_blocks = max(max_blocks, len(request_blocks))
             max_length = max(
                 max_length, input_length + max_new_tokens + speculative_length
@@ -495,6 +506,7 @@ class FlashCausalLMBatch(Batch):
             all_input_ids=all_input_ids,
             all_input_ids_tensor=all_input_ids_tensor,
             prefix_ids=prefix_ids,
+            suffix_ids=suffix_ids,
             next_token_chooser=next_token_chooser,
             stopping_criterias=stopping_criterias,
             top_n_tokens=top_n_tokens,
@@ -551,6 +563,7 @@ class FlashCausalLMBatch(Batch):
         block_tables = []
         all_input_ids = []
         prefix_ids = []
+        suffix_ids = []
 
         input_lengths = []
         prefix_lens = []
@@ -580,6 +593,7 @@ class FlashCausalLMBatch(Batch):
 
             all_input_ids.append(self.all_input_ids[idx])
             prefix_ids.append(self.prefix_ids[idx])
+            suffix_ids.append(self.suffix_ids[idx])
 
             input_lengths.append(request_input_length)
             prefix_lens.append(prefix_len)
@@ -670,6 +684,7 @@ class FlashCausalLMBatch(Batch):
             all_input_ids=all_input_ids,
             all_input_ids_tensor=all_input_ids_tensor,
             prefix_ids=prefix_ids,
+            suffix_ids=suffix_ids,
             next_token_chooser=next_token_chooser,
             stopping_criterias=stopping_criterias,
             top_n_tokens=top_n_tokens,
@@ -751,6 +766,7 @@ class FlashCausalLMBatch(Batch):
         prefix_lens = []
         all_input_ids = []
         prefix_ids = []
+        suffix_ids = []
 
         input_lengths = []
         prefix_offsets = []
@@ -820,6 +836,7 @@ class FlashCausalLMBatch(Batch):
             prefix_lens.extend(batch.prefix_lens)
             all_input_ids.extend(batch.all_input_ids)
             prefix_ids.extend(batch.prefix_ids)
+            suffix_ids.extend(batch.suffix_ids)
 
             input_lengths.extend(batch.input_lengths)
             prefix_offsets.extend(batch.prefix_offsets)
@@ -879,6 +896,7 @@ class FlashCausalLMBatch(Batch):
             all_input_ids=all_input_ids,
             all_input_ids_tensor=all_input_ids_tensor,
             prefix_ids=prefix_ids,
+            suffix_ids=suffix_ids,
             next_token_chooser=next_token_chooser,
             stopping_criterias=stopping_criterias,
             top_n_tokens=top_n_tokens,
@@ -1446,6 +1464,8 @@ class FlashCausalLM(Model):
 
             input_ids = new_input_ids
             position_ids = new_position_ids
+            if any([len(suffix) for suffix in batch.suffix_ids]):
+                raise RuntimeError("Suffix not supported with medusa")
         else:
             input_ids = batch.input_ids
             position_ids = batch.position_ids
@@ -1740,6 +1760,7 @@ class FlashCausalLM(Model):
             batch.stopping_criterias,
             batch.all_input_ids,
             batch.prefix_ids,
+            batch.suffix_ids,
             batch.next_token_chooser.do_sample,
             batch.next_token_chooser.seeds,
             batch.top_n_tokens,
@@ -1758,6 +1779,7 @@ class FlashCausalLM(Model):
             stopping_criteria,
             all_input_ids,
             prefix_ids,
+            suffix_ids,
             do_sample,
             seed,
             top_n_tokens,
@@ -1769,39 +1791,54 @@ class FlashCausalLM(Model):
             next_token_texts = []
             left = 0
 
-            if n_accepted_ids > 1:
-                log_master(logger.debug, f"Speculated ids {n_accepted_ids - 1}")
+            if not suffix_ids:
+                if n_accepted_ids > 1:
+                    log_master(logger.debug, f"Speculated ids {n_accepted_ids - 1}")
 
-            current_stopped = False
-            for j in range(index, index + n_accepted_ids):
-                # Generated token
-                next_token_id = next_token_ids[j]
-                all_input_ids.append(next_token_id)
-                next_token_text, prefix_offset, read_offset = self.decode_token(
-                    all_input_ids,
-                    prefix_offset,
-                    read_offset,
-                )
-                next_token_texts.append(next_token_text)
+                current_stopped = False
+                for j in range(index, index + n_accepted_ids):
+                    # Generated token
+                    next_token_id = next_token_ids[j]
+                    all_input_ids.append(next_token_id)
+                    next_token_text, prefix_offset, read_offset = self.decode_token(
+                        all_input_ids,
+                        prefix_offset,
+                        read_offset,
+                    )
+                    next_token_texts.append(next_token_text)
 
-                stop, reason = stopping_criteria(
-                    next_token_id,
-                    next_token_text,
-                )
+                    stop, reason = stopping_criteria(
+                        next_token_id,
+                        next_token_text,
+                    )
 
-                if stop:
-                    left = index + n_accepted_ids - j - 1
-                    current_stopped = True
-                    break
-                else:
-                    current_stopped = False
-            stopped = stopped and current_stopped
+                    if stop:
+                        left = index + n_accepted_ids - j - 1
+                        current_stopped = True
+                        break
+                    else:
+                        current_stopped = False
 
-            _next_token_ids = next_token_ids[index : index + n_accepted_ids - left]
-            _next_token_logprobs = next_token_logprobs[
-                index : index + n_accepted_ids - left
-            ]
-            index += n_accepted_ids
+                stopped = stopped and current_stopped
+
+                _next_token_ids = next_token_ids[index : index + n_accepted_ids - left]
+                _next_token_logprobs = next_token_logprobs[
+                    index : index + n_accepted_ids - left
+                ]
+                index += n_accepted_ids
+                req_prefill = prefill
+            else:
+                _input_ids = suffix_ids[: self.max_prefill_tokens]
+                n_accepted_ids = len(_input_ids)
+                # TODO fix logprobs.
+                _next_token_logprobs = [float("nan")] * n_accepted_ids
+                index += n_accepted_ids
+                suffix_ids = suffix_ids[n_accepted_ids:]
+                _next_token_ids = []
+                _next_token_logprobs = []
+                stop = False
+                reason = None
+                req_prefill = True
 
             # Shard generations
             # All generations will be appended in the rust sharded client
@@ -1827,7 +1864,7 @@ class FlashCausalLM(Model):
                     generated_text = None
 
                 # Prefill
-                if prefill and request.prefill_logprobs:
+                if req_prefill and request.prefill_logprobs:
                     out_start_index = batch.prefill_cu_outlens[i]
                     out_end_index = batch.prefill_cu_outlens[i + 1]
 
@@ -1889,6 +1926,7 @@ class FlashCausalLM(Model):
                     top_tokens,
                 )
 
+                logger.info(f"Generation {generation}")
                 generations.append(generation)
 
             # accept each new token for this specific request since we may
@@ -1902,6 +1940,7 @@ class FlashCausalLM(Model):
             batch.input_lengths[i] = input_length + n_accepted_ids
             if batch.input_lengths[i] > batch.max_seqlen:
                 batch.max_seqlen = batch.input_lengths[i]
+            batch.suffix_ids[i] = suffix_ids
             batch.prefix_offsets[i] = prefix_offset
             batch.read_offsets[i] = read_offset
             batch.all_input_ids[i] = all_input_ids
