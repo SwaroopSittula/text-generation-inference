@@ -1,1 +1,1 @@
-from text_generation_server.layer.moe.unquantized import UnquantizedMoELayer
+from text_generation_server.layers.moe.unquantized import UnquantizedMoELayer

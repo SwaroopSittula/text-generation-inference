@@ -32,6 +32,7 @@ from text_generation_server.layers.attention import (
     Seqlen,
 )
 from text_generation_server.layers.layernorm import FastRMSNorm
+from text_generation_server.layers.moe.unquantized import UnquantizedMoELayer
 from text_generation_server.layers.rotary import PositionRotaryEmbedding, get_mscale
 from text_generation_server.utils.import_utils import SYSTEM
 from text_generation_server.utils.weights import Weights
@@ -459,6 +460,11 @@ class BlockSparseMoE(nn.Module):
         self.norm_topk_prob = config.norm_topk_prob
         self.routed_scaling_factor = config.routed_scaling_factor
 
+        self.moe_layer = UnquantizedMoELayer(
+            prefix=prefix, n_experts=self.n_routed_experts, weights=weights
+        )
+
+        """
         gate_proj = _load_experts(
             config, f"{prefix}.experts", "gate_proj", weights
         ).view(self.n_routed_experts, self.moe_intermediate_size, self.hidden_dim)
@@ -475,6 +481,7 @@ class BlockSparseMoE(nn.Module):
             .transpose(1, 2)
             .contiguous()
         )
+        """
 
         # Gating
         self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
@@ -508,14 +515,7 @@ class BlockSparseMoE(nn.Module):
             topk_group=self.topk_group,
         )
         out = (
-            fused_experts(
-                x,
-                self.gate_up_proj,
-                self.down_proj,
-                topk_weights,
-                topk_ids,
-                inplace=True,
-            )
+            self.moe_layer(x, topk_weights=topk_weights, topk_ids=topk_ids)
             * self.routed_scaling_factor
         )
 
