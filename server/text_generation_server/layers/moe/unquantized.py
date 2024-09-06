@@ -31,7 +31,8 @@ class UnquantizedMoELayer(nn.Module):
             col_parallel=True,
         )
 
-        self.gate_up_proj = torch.cat([gate_proj, up_proj])
+        # First dimension are the experts.
+        self.gate_up_proj = torch.cat([gate_proj, up_proj], dim=1)
 
         self.down_proj = _load_expert_weights(
             prefix=prefix,
