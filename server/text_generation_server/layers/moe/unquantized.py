@@ -10,8 +10,8 @@ class UnquantizedMoELayer(nn.Module):
     def __init__(
         self,
         *,
-        prefix: str,
         n_experts: int,
+        prefix: str,
         weights: Weights,
     ):
         super().__init__()
