@@ -25,8 +25,6 @@ import torch.distributed
 from torch import nn
 from text_generation_server.utils.import_utils import SYSTEM
 
-if SYSTEM != "ipex":
-    from vllm.model_executor.layers.fused_moe import fused_moe
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 from typing import Optional, List, Tuple
@@ -45,6 +43,7 @@ from text_generation_server.layers import (
     SpeculativeHead,
     get_linear,
 )
+from text_generation_server.layers.moe import UnquantizedMoELayer
 from text_generation_server.layers.layernorm import (
     FastRMSNorm,
 )
@@ -144,10 +143,13 @@ def _load_gqa(config, prefix: str, weights):
         head_size = config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads // weights.process_group.size()
         num_key_value_heads = config.num_key_value_heads // weights.process_group.size()
-        assert list(weight.weight.shape) == [
-            (num_heads + 2 * num_key_value_heads) * head_size,
-            config.hidden_size,
-        ], f"{list(weight.weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
+        assert (
+            list(weight.weight.shape)
+            == [
+                (num_heads + 2 * num_key_value_heads) * head_size,
+                config.hidden_size,
+            ]
+        ), f"{list(weight.weight.shape)} != {[(num_heads + 2 * config.num_key_value_heads) * head_size, config.hidden_size]}"
 
     return TensorParallelColumnLinear(get_linear(weight, bias=None))
 
@@ -319,10 +321,6 @@ def round_up(x: torch.Tensor, value: int):
 class BlockSparseMoE(nn.Module):
     def __init__(self, prefix, config: MixtralConfig, weights):
         super().__init__()
-        self.hidden_dim = config.hidden_size
-        self.ffn_dim = config.intermediate_size // weights.process_group.size()
-        self.num_experts = config.num_local_experts
-        self.top_k = config.num_experts_per_tok
 
         act = config.hidden_act
         if "gelu" in act:
@@ -340,19 +338,17 @@ class BlockSparseMoE(nn.Module):
         # gating
         self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
 
-        # merged expert weights, all of size  (n_experts * ffn_dim, hidden_dim)
-        w1 = _load_experts(config, f"{prefix}.experts", "w1", weights).view(
-            self.num_experts, self.ffn_dim, self.hidden_dim
-        )
-        w3 = _load_experts(config, f"{prefix}.experts", "w3", weights).view(
-            self.num_experts, self.ffn_dim, self.hidden_dim
-        )
-        self.w13 = torch.cat([w1, w3], dim=1)
-        self.w2 = (
-            _load_experts(config, f"{prefix}.experts", "w2", weights)
-            .view(self.num_experts, self.ffn_dim, self.hidden_dim)
-            .transpose(1, 2)
-            .contiguous()
+        self.moe = UnquantizedMoELayer(
+            n_expert_group=None,
+            n_experts=config.num_local_experts,
+            prefix=f"{prefix}.experts",
+            renormalize=True,
+            topk=config.num_experts_per_tok,
+            topk_group=None,
+            weights=weights,
+            gate_proj_name="w1",
+            up_proj_name="w3",
+            down_proj_name="w2",
         )
 
         self.process_group = weights.process_group
@@ -360,15 +356,7 @@ class BlockSparseMoE(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # router_logits: (num_tokens, n_experts)
         router_logits = self.gate(x)
-        out = fused_moe(
-            x,
-            self.w13,
-            self.w2,
-            router_logits,
-            self.top_k,
-            renormalize=True,
-            inplace=True,
-        )
+        out = self.moe(x, gating_output=router_logits)
 
         # Reduce sum
         if self.process_group.size() > 1:
