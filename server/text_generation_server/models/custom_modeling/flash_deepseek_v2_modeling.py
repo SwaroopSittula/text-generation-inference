@@ -33,7 +33,7 @@ from text_generation_server.layers.attention import (
     Seqlen,
 )
 from text_generation_server.layers.layernorm import FastRMSNorm
-from text_generation_server.layers.moe.unquantized import UnquantizedMoELayer
+from text_generation_server.layers.moe import MoELayer
 from text_generation_server.layers.rotary import PositionRotaryEmbedding, get_mscale
 from text_generation_server.utils.import_utils import SYSTEM
 from text_generation_server.utils.weights import Weights
@@ -418,7 +418,10 @@ class BlockSparseMoE(nn.Module):
         )
         self.routed_scaling_factor = config.routed_scaling_factor
 
-        self.moe_layer = UnquantizedMoELayer(
+        # Gating
+        self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
+
+        self.moe_layer = MoELayer(
             prefix=f"{prefix}.experts",
             n_experts=config.n_routed_experts,
             n_expert_group=config.n_group,
@@ -427,9 +430,6 @@ class BlockSparseMoE(nn.Module):
             topk_group=config.topk_group,
             weights=weights,
         )
-
-        # Gating
-        self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
 
         if config.n_shared_experts is not None:
             self.shared_experts = DeepseekV2MLP(
@@ -570,7 +570,7 @@ class DeepseekV2Layer(nn.Module):
             and layer_id >= config.first_k_dense_replace
             and layer_id % config.moe_layer_freq == 0
         ):
-            moe_cls = BlockSparseMoE if config.quantize is None else DenseMoE
+            moe_cls = BlockSparseMoE if MoELayer.is_supported(weights) else DenseMoE
             self.mlp = moe_cls(f"{prefix}.mlp", config, weights)
         else:
             self.mlp = DeepseekV2MLP(
