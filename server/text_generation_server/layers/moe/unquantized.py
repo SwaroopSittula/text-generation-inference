@@ -18,6 +18,9 @@ class UnquantizedMoELayer(nn.Module):
         topk: int,
         topk_group: Optional[int],
         weights: Weights,
+        gate_proj_name: str = "gate_proj",
+        up_proj_name: str = "up_proj",
+        down_proj_name: str = "down_proj",
     ):
         super().__init__()
 
@@ -33,14 +36,14 @@ class UnquantizedMoELayer(nn.Module):
         gate_proj = _load_expert_weights(
             prefix=prefix,
             n_experts=n_experts,
-            name="gate_proj",
+            name=gate_proj_name,
             weights=weights,
             col_parallel=True,
         )
         up_proj = _load_expert_weights(
             prefix=prefix,
             n_experts=n_experts,
-            name="up_proj",
+            name=up_proj_name,
             weights=weights,
             col_parallel=True,
         )
@@ -51,7 +54,7 @@ class UnquantizedMoELayer(nn.Module):
         self.down_proj = _load_expert_weights(
             prefix=prefix,
             n_experts=n_experts,
-            name="down_proj",
+            name=down_proj_name,
             weights=weights,
             col_parallel=False,
         )
@@ -82,11 +85,11 @@ def _load_expert_weights(
     for i in range(n_experts):
         if col_parallel:
             weight = weights.get_weights_col(
-                f"{prefix}.experts.{i}.{name}",
+                f"{prefix}.{i}.{name}",
             )
         else:
             weight = weights.get_weights_row(
-                f"{prefix}.experts.{i}.{name}",
+                f"{prefix}.{i}.{name}",
             )
 
         assert isinstance(weight, UnquantizedWeight)

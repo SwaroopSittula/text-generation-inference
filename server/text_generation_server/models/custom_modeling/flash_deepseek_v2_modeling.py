@@ -419,7 +419,7 @@ class BlockSparseMoE(nn.Module):
         self.routed_scaling_factor = config.routed_scaling_factor
 
         self.moe_layer = UnquantizedMoELayer(
-            prefix=prefix,
+            prefix=f"{prefix}.experts",
             n_experts=config.n_routed_experts,
             n_expert_group=config.n_group,
             renormalize=config.norm_topk_prob,
