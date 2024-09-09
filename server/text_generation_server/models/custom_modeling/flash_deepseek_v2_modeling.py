@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
+from moe_kernels.fused_moe import grouped_topk
 import torch
 import torch.distributed
 from text_generation_server.layers import (
@@ -415,15 +416,16 @@ class BlockSparseMoE(nn.Module):
         self.moe_intermediate_size = (
             config.moe_intermediate_size // weights.process_group.size()
         )
-        self.n_routed_experts = config.n_routed_experts
-        self.n_expert_group = config.n_group
-        self.topk_group = config.topk_group
-        self.top_k = config.num_experts_per_tok
-        self.norm_topk_prob = config.norm_topk_prob
         self.routed_scaling_factor = config.routed_scaling_factor
 
         self.moe_layer = UnquantizedMoELayer(
-            prefix=prefix, n_experts=self.n_routed_experts, weights=weights
+            prefix=prefix,
+            n_experts=config.n_routed_experts,
+            n_expert_group=config.n_group,
+            renormalize=config.norm_topk_prob,
+            topk=config.num_experts_per_tok,
+            topk_group=config.topk_group,
+            weights=weights,
         )
 
         # Gating
@@ -449,18 +451,8 @@ class BlockSparseMoE(nn.Module):
             shared_output = None
 
         router_logits = self.gate(x)
-        topk_weights, topk_ids = grouped_topk(
-            x,
-            router_logits,
-            self.top_k,
-            renormalize=self.norm_topk_prob,
-            num_expert_group=self.n_expert_group,
-            topk_group=self.topk_group,
-        )
-        out = (
-            self.moe_layer(x, topk_weights=topk_weights, topk_ids=topk_ids)
-            * self.routed_scaling_factor
-        )
+
+        out = self.moe_layer(x, gating_output=router_logits)
 
         if shared_output is not None:
             out = out + shared_output
@@ -742,42 +734,3 @@ class FlashDeepseekV2ForCausalLM(torch.nn.Module):
             hidden_states = hidden_states[lm_head_indices]
         logits, speculative_logits = self.lm_head(hidden_states)
         return logits, speculative_logits
-
-
-# Functions below are from vLLM:
-#
-# https://github.com/vllm-project/vllm/blob/f7160d946a0a07703e72d81ba9ecf3913f192605/vllm/model_executor/layers/fused_moe/fused_moe.py#L397
-#
-# Remove after we have synced our version with upstream.
-
-
-def grouped_topk(
-    hidden_states: torch.Tensor,
-    gating_output: torch.Tensor,
-    topk: int,
-    renormalize: bool,
-    num_expert_group: int = 0,
-    topk_group: int = 0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    scores = torch.softmax(gating_output, dim=-1)
-    num_token = scores.shape[0]
-    group_scores = (
-        scores.view(num_token, num_expert_group, -1).max(dim=-1).values
-    )  # [n, n_group]
-    group_idx = torch.topk(group_scores, k=topk_group, dim=-1, sorted=False)[
-        1
-    ]  # [n, top_k_group]
-    group_mask = torch.zeros_like(group_scores)  # [n, n_group]
-    group_mask.scatter_(1, group_idx, 1)  # [n, n_group]
-    score_mask = (
-        group_mask.unsqueeze(-1)
-        .expand(num_token, num_expert_group, scores.shape[-1] // num_expert_group)
-        .reshape(num_token, -1)
-    )  # [n, e]
-    tmp_scores = scores.masked_fill(~score_mask.bool(), 0.0)  # [n, e]
-    topk_weights, topk_ids = torch.topk(tmp_scores, k=topk, dim=-1, sorted=False)
-
-    if renormalize:
-        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
-
-    return topk_weights, topk_ids

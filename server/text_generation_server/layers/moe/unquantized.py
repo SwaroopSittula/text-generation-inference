@@ -1,4 +1,6 @@
-from moe_kernels.fused_moe import fused_experts
+from typing import Optional
+
+from moe_kernels.fused_moe import fused_moe
 import torch
 import torch.nn as nn
 
@@ -9,11 +11,24 @@ class UnquantizedMoELayer(nn.Module):
     def __init__(
         self,
         *,
+        n_expert_group: Optional[int],
         n_experts: int,
         prefix: str,
+        renormalize: bool,
+        topk: int,
+        topk_group: Optional[int],
         weights: Weights,
     ):
         super().__init__()
+
+        assert (n_expert_group is None) == (
+            topk_group is None
+        ), "n_expert_group and topk_group must both be None or have some value"
+
+        self.n_expert_group = n_expert_group
+        self.topk = topk
+        self.topk_group = topk_group
+        self.renormalize = renormalize
 
         gate_proj = _load_expert_weights(
             prefix=prefix,
@@ -41,16 +56,18 @@ class UnquantizedMoELayer(nn.Module):
             col_parallel=False,
         )
 
-    def forward(
-        self, x: torch.Tensor, *, topk_weights: torch.Tensor, topk_ids: torch.Tensor
-    ) -> torch.Tensor:
-        return fused_experts(
+    def forward(self, x: torch.Tensor, *, gating_output: torch.Tensor) -> torch.Tensor:
+        return fused_moe(
             x,
-            self.gate_up_proj,
-            self.down_proj,
-            topk_weights,
-            topk_ids,
+            w1=self.gate_up_proj,
+            w2=self.down_proj,
+            gating_output=gating_output,
+            topk=self.topk,
+            renormalize=self.renormalize,
             inplace=True,
+            use_grouped_topk=self.n_expert_group is not None,
+            num_expert_group=self.n_expert_group,
+            topk_group=self.topk_group,
         )
 
 
