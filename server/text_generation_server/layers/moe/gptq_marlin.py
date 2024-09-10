@@ -18,7 +18,11 @@ class GPTQMarlinMoEWeight:
     perm: torch.Tensor
 
 
-class GPTQMarlinMoE(nn.Module):
+class GPTQMarlinSparseMoELayer(nn.Module):
+    """
+    MoE layer that uses a fused GPTQ-Marlin kernel.
+    """
+
     def __init__(
         self,
         *,

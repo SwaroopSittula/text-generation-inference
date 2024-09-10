@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 
 from text_generation_server.layers.fp8 import HybridFP8UnquantLoader
-from text_generation_server.layers.moe.unquantized import UnquantizedMoELayer
-from text_generation_server.layers.moe.gptq_marlin import GPTQMarlinMoE
+from text_generation_server.layers.moe.unquantized import UnquantizedSparseMoELayer
+from text_generation_server.layers.moe.gptq_marlin import GPTQMarlinSparseMoELayer
 from text_generation_server.layers.marlin import GPTQMarlinWeightsLoader
 from text_generation_server.utils.weights import (
     DefaultWeightsLoader,
@@ -14,7 +14,13 @@ from text_generation_server.utils.weights import (
 )
 
 
-class MoELayer(nn.Module):
+class SparseMoELayer(nn.Module):
+    """
+    Layer for MoE that uses fused kernels to only apply the active experts
+    for each token (rather than applying all experts and selecting the
+    outputs of active experts).
+    """
+
     def __init__(
         self,
         *,
@@ -35,10 +41,10 @@ class MoELayer(nn.Module):
             isinstance(weights.loader, DefaultWeightsLoader)
             and isinstance(weights.loader.weight_class, UnquantizedWeight)
         ) or isinstance(weights.loader, HybridFP8UnquantLoader):
-            cls = UnquantizedMoELayer
+            cls = UnquantizedSparseMoELayer
         elif isinstance(weights.loader, GPTQMarlinWeightsLoader):
             # TODO: check for symmetric
-            cls = GPTQMarlinMoE
+            cls = GPTQMarlinSparseMoELayer
         else:
             raise ValueError(
                 f"Unsupported weights loader: {weights.loader}, sparse MoE is only supported for unquantized and GPTQ weights"

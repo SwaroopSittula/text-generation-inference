@@ -43,7 +43,7 @@ from text_generation_server.layers import (
     SpeculativeHead,
     get_linear,
 )
-from text_generation_server.layers.moe import MoELayer, UnquantizedMoELayer
+from text_generation_server.layers.moe import SparseMoELayer
 from text_generation_server.layers.layernorm import (
     FastRMSNorm,
 )
@@ -325,7 +325,7 @@ class BlockSparseMoE(nn.Module):
         # gating
         self.gate = FastLinear.load(config, f"{prefix}.gate", weights, bias=False)
 
-        self.moe = MoELayer(
+        self.moe = SparseMoELayer(
             n_expert_group=None,
             n_experts=config.num_local_experts,
             prefix=f"{prefix}.experts",
@@ -450,7 +450,7 @@ class MixtralLayer(nn.Module):
             prefix=f"{prefix}.self_attn", config=config, weights=weights
         )
 
-        moe_cls = BlockSparseMoE if MoELayer.is_supported(weights) else DenseMoE
+        moe_cls = BlockSparseMoE if SparseMoELayer.is_supported(weights) else DenseMoE
         self.moe = moe_cls(f"{prefix}.block_sparse_moe", config, weights)
 
         self.input_layernorm = FastRMSNorm.load(

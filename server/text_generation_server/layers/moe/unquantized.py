@@ -7,7 +7,7 @@ import torch.nn as nn
 from text_generation_server.utils.weights import UnquantizedWeight, Weights
 
 
-class UnquantizedMoELayer(nn.Module):
+class UnquantizedSparseMoELayer(nn.Module):
     def __init__(
         self,
         *,
