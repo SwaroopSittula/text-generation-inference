@@ -978,14 +978,17 @@
         "nixpkgs": "nixpkgs_6"
       },
       "locked": {
-        "lastModified": 1725870557,
-        "narHash": "sha256-+hybdoRuhYC2a0Q/TT4MgdUvhZNUZKpKj1fiGu7UO5Q=",
-        "path": "/home/daniel/git/tgi-nix",
-        "type": "path"
+        "lastModified": 1725950569,
+        "narHash": "sha256-nJHA1SvIQbXySpL2ueNbzQOhnkQASa5tOLz/kdW0PWA=",
+        "owner": "danieldk",
+        "repo": "tgi-nix",
+        "rev": "d40f3c22e9bcc5e16c94d4605cf6a7d74dd07f46",
+        "type": "github"
       },
       "original": {
-        "path": "/home/daniel/git/tgi-nix",
-        "type": "path"
+        "owner": "danieldk",
+        "repo": "tgi-nix",
+        "type": "github"
       }
     }
   },
