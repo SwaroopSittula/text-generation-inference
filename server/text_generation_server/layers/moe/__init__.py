@@ -42,8 +42,7 @@ class SparseMoELayer(nn.Module):
             and isinstance(weights.loader.weight_class, UnquantizedWeight)
         ) or isinstance(weights.loader, HybridFP8UnquantLoader):
             cls = UnquantizedSparseMoELayer
-        elif isinstance(weights.loader, GPTQMarlinWeightsLoader):
-            # TODO: check for symmetric
+        elif isinstance(weights.loader, GPTQMarlinWeightsLoader) and weights.loader.sym:
             cls = GPTQMarlinSparseMoELayer
         else:
             raise ValueError(

@@ -6,7 +6,10 @@ import torch
 import torch.nn as nn
 
 from text_generation_server.utils.weights import Weights
-from text_generation_server.layers.marlin.gptq import GPTQMarlinWeight
+from text_generation_server.layers.marlin.gptq import (
+    GPTQMarlinWeight,
+    GPTQMarlinWeightsLoader,
+)
 
 
 @dataclass
@@ -39,6 +42,13 @@ class GPTQMarlinSparseMoELayer(nn.Module):
     ):
         super().__init__()
 
+        if not (
+            isinstance(weights.loader, GPTQMarlinWeightsLoader) and weights.loader.sym
+        ):
+            raise ValueError(
+                f"Unsupported weights loader: {weights.loader}, only GPTQMarlinWeightsLoader with symmetric quantization is supported"
+            )
+
         assert (n_expert_group is None) == (
             topk_group is None
         ), "n_expert_group and topk_group must both be None or have some value"
@@ -48,7 +58,6 @@ class GPTQMarlinSparseMoELayer(nn.Module):
         self.topk_group = topk_group
         self.renormalize = renormalize
 
-        # TODO: update these to take prefixes
         self.gate_up_proj = _load_expert_multi_weights_col(
             prefix=prefix,
             n_experts=n_experts,
