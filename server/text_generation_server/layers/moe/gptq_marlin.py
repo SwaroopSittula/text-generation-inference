@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from moe_kernels.fused_moe import fused_marlin_moe
+from moe_kernels.fused_marlin_moe import fused_marlin_moe
 import torch
 import torch.nn as nn
 
@@ -19,6 +19,7 @@ class GPTQMarlinMoEWeight:
     scales: torch.Tensor
     g_idx: torch.Tensor
     perm: torch.Tensor
+    is_full_k: bool
 
 
 class GPTQMarlinSparseMoELayer(nn.Module):
@@ -76,14 +77,15 @@ class GPTQMarlinSparseMoELayer(nn.Module):
             w2=self.down_proj.qweight,
             g_idx1=self.gate_up_proj.g_idx,
             g_idx2=self.down_proj.g_idx,
-            rand_perm1=self.gate_up_proj.perm,
-            rand_perm2=self.down_proj.perm,
+            perm1=self.gate_up_proj.perm,
+            perm2=self.down_proj.perm,
             w1_scale=self.gate_up_proj.scales,
             w2_scale=self.down_proj.scales,
+            is_full_k1=self.gate_up_proj.is_full_k,
+            is_full_k2=self.down_proj.is_full_k,
             gating_output=gating_output,
             topk=self.topk,
             renormalize=self.renormalize,
-            # inplace=True,
             use_grouped_topk=self.n_expert_group is not None,
             num_expert_group=self.n_expert_group,
             topk_group=self.topk_group,
@@ -165,7 +167,12 @@ def _pack_weight(
         )
 
         moe_weight = GPTQMarlinMoEWeight(
-            qweight=qweight, qzeros=qzeros, scales=scales, g_idx=g_idx, perm=perm
+            qweight=qweight,
+            qzeros=qzeros,
+            scales=scales,
+            g_idx=g_idx,
+            perm=perm,
+            is_full_k=weight.is_full_k,
         )
 
     moe_weight.qweight[expert] = weight.qweight
