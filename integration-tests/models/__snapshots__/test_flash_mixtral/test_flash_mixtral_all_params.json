@@ -1,0 +1,99 @@
+{
+  "details": {
+    "best_of_sequences": null,
+    "finish_reason": "length",
+    "generated_tokens": 10,
+    "prefill": [
+      {
+        "id": 1,
+        "logprob": null,
+        "text": "<s>"
+      },
+      {
+        "id": 5168,
+        "logprob": -13.796875,
+        "text": "learning"
+      },
+      {
+        "id": 28804,
+        "logprob": -10.171875,
+        "text": "?"
+      },
+      {
+        "id": 13,
+        "logprob": -0.8100586,
+        "text": "\n"
+      },
+      {
+        "id": 13,
+        "logprob": -0.2298584,
+        "text": "\n"
+      }
+    ],
+    "seed": 0,
+    "tokens": [
+      {
+        "id": 2324,
+        "logprob": -2.515625,
+        "special": false,
+        "text": "We"
+      },
+      {
+        "id": 544,
+        "logprob": -1.0830078,
+        "special": false,
+        "text": " all"
+      },
+      {
+        "id": 873,
+        "logprob": -1.6230469,
+        "special": false,
+        "text": " know"
+      },
+      {
+        "id": 910,
+        "logprob": -1.4443359,
+        "special": false,
+        "text": " how"
+      },
+      {
+        "id": 2278,
+        "logprob": 0.0,
+        "special": false,
+        "text": " important"
+      },
+      {
+        "id": 5362,
+        "logprob": -1.1484375,
+        "special": false,
+        "text": " education"
+      },
+      {
+        "id": 349,
+        "logprob": 0.0,
+        "special": false,
+        "text": " is"
+      },
+      {
+        "id": 28723,
+        "logprob": -0.75,
+        "special": false,
+        "text": "."
+      },
+      {
+        "id": 816,
+        "logprob": -0.19335938,
+        "special": false,
+        "text": " We"
+      },
+      {
+        "id": 835,
+        "logprob": 0.0,
+        "special": false,
+        "text": " also"
+      }
+    ],
+    "top_tokens": null
+  },
+  "generated_text": "What is deep learning?\n\nWe all know how important education is. We also"
+}
