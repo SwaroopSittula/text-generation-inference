@@ -23,7 +23,7 @@ async def test_flash_mixtral(flash_mixtral, response_snapshot):
     assert response.details.generated_tokens == 10
     assert (
         response.generated_text
-        == "Deep learning is a subset of machine learning that uses"
+        == "Deep learning is a subset of machine learning that is"
     )
     assert response == response_snapshot
 
